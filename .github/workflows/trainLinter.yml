@@ -1,7 +1,8 @@
 name: Linter
 on: push
 permissions:
-  contents: write
+  contents: read
+  statuses: write
 
 jobs:
   yamllint:
