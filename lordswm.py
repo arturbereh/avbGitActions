@@ -60,8 +60,9 @@ def mine_production_loop(page):
     while True:
         # Try Mining
         #page.get_by_text(mining_text).click()
-        page.locator(".map_sel_obj_t").first.click()
-        #page.get_by_role("link", name="Mining").click()
+        #page.locator(".map_sel_obj_t").first.click()
+        page.get_by_role("link", name="Map").hover()
+        page.get_by_role("link", name="Mining").click()
         page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
 
         link = page.get_by_text("»»»")
@@ -76,8 +77,8 @@ def mine_production_loop(page):
 
         # Try Production
         #page.get_by_text(production_text).click()
-        page.locator("a:nth-child(3)").click()
-        #page.get_by_role("link", name="Production").click()
+        page.get_by_role("link", name="Map").hover()
+        page.get_by_role("link", name="Production").click()
         page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
 
         link = page.get_by_text("»»»")
