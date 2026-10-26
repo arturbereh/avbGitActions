@@ -5,6 +5,7 @@ Automated Playwright script for cyclic Map, Mining, and Production tasks.
 import itertools
 import os
 import time
+from typing import Optional
 
 from playwright.sync_api import Locator, Page, sync_playwright
 
@@ -30,11 +31,16 @@ def login(page: Page) -> None:
     page.wait_for_load_state("networkidle")
 
 
-def attempt_workflow(page: Page, locator: Locator) -> bool:
+def attempt_workflow(
+    page: Page, locator: Locator, hover_locator: Optional[Locator] = None
+) -> bool:
     """
-    Clicks the provided locator, waits, and checks for the '»»»' link.
+    Optionally hovers over a menu, clicks the provided locator, waits, and checks for the '»»»' link.
     If found, completes the workflow and returns True.
     """
+    if hover_locator:
+        hover_locator.hover()
+
     locator.click()
     page.wait_for_load_state("networkidle")
 
@@ -52,10 +58,12 @@ def main_loop(page: Page) -> None:
     """
     Main continuous loop for navigating Map, Production, and Mining.
     """
+    map_hover = page.get_by_text("Map")
+
     while True:
-        # 1. Try Map, then try Production (short-circuits if Map succeeds)
+        # 1. Try Map (no hover needed), then try Production (needs hover on Map)
         success = attempt_workflow(page, page.get_by_text("Map")) or attempt_workflow(
-            page, page.get_by_text("Production")
+            page, page.get_by_text("Production"), hover_locator=map_hover
         )
 
         # 2. If both failed, alternate Mining and Production hints every 5 mins
@@ -67,9 +75,9 @@ def main_loop(page: Page) -> None:
                 ]
             )
 
-            # Keep trying the fallback locators until one succeeds
+            # Keep trying the fallback locators until one succeeds (hovering Map first)
             for current_locator in fallback_locators:
-                if attempt_workflow(page, current_locator):
+                if attempt_workflow(page, current_locator, hover_locator=map_hover):
                     break
                 time.sleep(300)  # Wait 5 minutes
 
