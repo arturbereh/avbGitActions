@@ -125,7 +125,8 @@ def main_loop(page):
 if __name__ == "__main__":
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        page = context.new_page()
 
         # Set timeouts globally (optional)
         page.set_default_timeout(NAVI_TIMEOUT)
