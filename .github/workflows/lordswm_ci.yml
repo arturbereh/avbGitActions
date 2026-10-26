@@ -39,3 +39,11 @@ jobs:
       - name: Run Playwright script
         run: |
           python lordswm.py
+
+      - name: Upload Debug Screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()  # Crucial: This ensures it only runs if the python script crashes
+        with:
+          name: playwright-failure-screenshots
+          path: cicd_error_*.png
+          retention-days: 7

@@ -1,134 +1,103 @@
+"""
+Automated Playwright script for cyclic Map, Mining, and Production tasks.
+Includes automated CI/CD debugging screenshots on click failures.
+"""
 
-
+import itertools
 import os
 import time
-from playwright.sync_api import sync_playwright
+
+from playwright.sync_api import Locator, Page, sync_playwright
 
 # Environment variables
 URL = os.environ["WEBSITE"]
 USERNAME = os.environ["USERNAME"]
 PASSWORD = os.environ["PASSWORD"]
-
-# Optional selectors (with defaults)
 USERNAME_SELECTOR = os.environ.get("USERNAME_SELECTOR", 'input[name="login"]')
 PASSWORD_SELECTOR = os.environ.get("PASSWORD_SELECTOR", 'input[name="pass"]')
 
-# Increase timeouts for slow pages
 NAVI_TIMEOUT = 60000  # 60 seconds
 
-def login(page):
-    page.goto(URL, wait_until="domcontentloaded", timeout=NAVI_TIMEOUT)
 
+def safe_click(page: Page, locator: Locator, action_name: str) -> None:
+    """
+    Attempts to click a locator. If it fails, takes a full-page 
+    screenshot for debugging and raises the error.
+    """
+    try:
+        locator.click(timeout=10000)
+    except Exception as e:
+        filename = f"cicd_error_{action_name.replace(' ', '_')}.png"
+        print(f"FAILED: {action_name}. Saving screenshot to {filename}")
+        page.screenshot(path=filename, full_page=True)
+        raise e
+
+
+def login(page: Page) -> None:
+    page.goto(URL, wait_until="domcontentloaded")
     page.locator(USERNAME_SELECTOR).fill(USERNAME)
     page.locator(PASSWORD_SELECTOR).fill(PASSWORD)
 
-    # Click the image login button
-    page.locator('input[type="image"][title="Login!"]').click()
+    safe_click(page, page.locator('input[type="image"][title="Login!"]'), "Login_Button")
+    page.wait_for_load_state("networkidle")
 
-    page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
 
-def try_click_maproduction_and_wbtn(page, first_text: str):
+def attempt_workflow(page: Page, click_locator: Locator, action_name: str, hover_locator: Locator = None) -> bool:
     """
-    Click first_text (Map or Production), then check for '»»»'.
-    If found: click it, click #wbtn, and return True.
-    If not found: return False.
+    Optionally hovers a menu, clicks the target locator, and checks for '»»»'.
+    If found, completes the sequence and returns True.
     """
-    page.get_by_text(first_text).click()
-    page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
+    if hover_locator:
+        hover_locator.hover()
 
-    link = page.get_by_text("»»»")
-    if link.count() > 0:
-        link.first.click()
-        page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-        page.locator('#wbtn').click()
-        page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
+    safe_click(page, click_locator, action_name)
+    page.wait_for_load_state("networkidle")
+
+    arrows = page.get_by_text("»»»")
+    if arrows.count() > 0:
+        safe_click(page, arrows.first, f"{action_name}_Arrows")
+        page.wait_for_load_state("networkidle")
+
+        safe_click(page, page.locator("#wbtn"), f"{action_name}_W_Button")
+        page.wait_for_load_state("networkidle")
         return True
 
     return False
 
-def mine_production_loop(page):
-    """
-    Alternate between Mining and Production every 5 minutes,
-    checking for '»»»' until found, then click it and #wbtn.
-    """
-    delay_minutes = 5
-    delay_seconds = delay_minutes * 60
 
-    mining_text = "Mining"
-    production_text = "Production"
-
+def main_loop(page: Page) -> None:
     while True:
-        # Try Mining
-        #page.get_by_text(mining_text).click()
-        #page.locator(".map_sel_obj_t").first.click()
-        page.get_by_role("link", name="Map").hover()
-        page.get_by_role("link", name="Mining").click()
-        page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
+        # 1. Try Map, then try Production (short-circuits if Map succeeds)
+        success = attempt_workflow(page, page.get_by_text("Map"), "Initial_Map") or \
+                  attempt_workflow(page, page.get_by_text("Production"), "Initial_Production")
 
-        link = page.get_by_text("»»»")
-        if link.count() > 0:
-            link.first.click()
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            page.locator('#wbtn').click()
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            return
+        # 2. If both failed, alternate Mining and Production from the dropdown menu
+        if not success:
+            menu_hover = page.get_by_role("link", name="Map")
 
-        time.sleep(delay_seconds)
+            fallback_actions = itertools.cycle([
+                (page.get_by_role("link", name="Mining"), "Dropdown_Mining"),
+                (page.get_by_role("link", name="Production"), "Dropdown_Production"),
+            ])
 
-        # Try Production
-        #page.get_by_text(production_text).click()
-        page.get_by_role("link", name="Map").hover()
-        page.get_by_role("link", name="Production").click()
-        page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
+            for locator, name in fallback_actions:
+                if attempt_workflow(page, locator, name, hover_locator=menu_hover):
+                    break
+                time.sleep(300)  # 5 minutes
 
-        link = page.get_by_text("»»»")
-        if link.count() > 0:
-            link.first.click()
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            page.locator('#wbtn').click()
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            return
+        # 3. Success reached: wait 60 mins, reload, restart from the top
+        time.sleep(3600)
+        page.reload(wait_until="networkidle")
 
-        time.sleep(delay_seconds)
 
-def main_loop(page):
-    """
-    Main loop:
-    - Try Map -> check '»»»'
-    - If not found, try Production -> check '»»»'
-    - If still not found, alternate Mining/Production every 5 min until found.
-    - After success: wait 60 minutes, reload, and restart from Map.
-    """
-    while True:
-        # 1. Try Map
-        if try_click_maproduction_and_wbtn(page, "Map"):
-            time.sleep(60 * 60)
-            page.reload(wait_until="networkidle", timeout=NAVI_TIMEOUT)
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            continue
-
-        # 2. Try Production
-        if try_click_maproduction_and_wbtn(page, "Production"):
-            time.sleep(60 * 60)
-            page.reload(wait_until="networkidle", timeout=NAVI_TIMEOUT)
-            page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-            continue
-
-        # 3. Alternating Mining/Production loop until success
-        mine_production_loop(page)
-
-        # After success in the mine_production_loop: wait 60 min, reload, restart
-        time.sleep(60 * 60)
-        page.reload(wait_until="networkidle", timeout=NAVI_TIMEOUT)
-        page.wait_for_load_state("networkidle", timeout=NAVI_TIMEOUT)
-
-if __name__ == "__main__":
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+def main() -> None:
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        # Force a large desktop resolution to prevent mobile layouts in CI/CD
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
 
-        # Set timeouts globally (optional)
+        # Handle all subsequent timeouts automatically
         page.set_default_timeout(NAVI_TIMEOUT)
         page.set_default_navigation_timeout(NAVI_TIMEOUT)
 
@@ -136,3 +105,7 @@ if __name__ == "__main__":
         main_loop(page)
 
         browser.close()
+
+
+if __name__ == "__main__":
+    main()
