@@ -35,7 +35,7 @@ def attempt_workflow(
     page: Page, locator: Locator, hover_locator: Optional[Locator] = None
 ) -> bool:
     """
-    Optionally hovers over a menu, clicks the provided locator, waits, and checks for the '»»»' link.
+    Optionally hovers over a menu, clicks the provided locator, waits, and checks for the '»»»'.
     If found, completes the workflow and returns True.
     """
     if hover_locator:
